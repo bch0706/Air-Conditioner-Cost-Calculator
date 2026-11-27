@@ -36,10 +36,94 @@ model = load_model()
 raw_domain = getattr(model, "original_domain", None) or model.domain
 raw_attrs = raw_domain.attributes
 
-# --- 1. 왼쪽 사이드바: 조건 입력 ---
 st.sidebar.header("⚙️ 사용 환경 및 패턴 설정")
 st.sidebar.caption("값을 조절하면 오른쪽 예상 결과가 즉시 바뀝니다.")
 
 raw_dict = {}
-input_values = []
-summary_tags
+tags = []
+
+for attr in raw_attrs:
+  orig_name = attr.name
+  label = LABEL_MAP.get(orig_name.lower(), orig_name)
+
+  if attr.is_discrete:
+    options = list(attr.values)
+    if len(options) <= 3:
+      choice = st.sidebar.radio(label, options=options)
+    else:
+      choice = st.sidebar.selectbox(label, options=options)
+    raw_dict[orig_name] = float(attr.to_val(choice))
+    tags.append(f"**{choice}**")
+
+  elif attr.is_continuous:
+    lower_name = orig_name.lower()
+    if any(k in lower_name for k in ["일수", "일", "day"]):
+      val = st.sidebar.slider(label, 1, 31, 25, 1)
+      tags.append(f"**월 {val}일**")
+    elif any(k in lower_name for k in ["시간", "hour", "time"]):
+      val = st.sidebar.slider(label, 0.0, 24.0, 5.0, 0.5)
+      tags.append(f"**일 {val}시간**")
+    elif any(k in lower_name for k in ["가구원", "인원", "명", "member"]):
+      val = st.sidebar.slider(label, 1, 8, 3, 1)
+      tags.append(f"**{val}인 가구**")
+    elif any(k in lower_name for k in ["대수", "대", "count", "num"]):
+      val = st.sidebar.slider(label, 1, 5, 1, 1)
+      tags.append(f"**{val}대**")
+    elif any(k in lower_name for k in ["평", "면적", "area"]):
+      val = st.sidebar.slider(label, 10, 60, 30, 1)
+      tags.append(f"**{val}평**")
+    elif any(k in lower_name for k in ["온도", "temp"]):
+      val = st.sidebar.slider(label, 18.0, 30.0, 24.0, 0.5)
+      tags.append(f"**{val}°C**")
+    else:
+      val = st.sidebar.slider(label, 0, 100, 10, 1)
+      tags.append(f"**{val}**")
+
+    raw_dict[orig_name] = float(val)
+
+
+def predict_safely(orange_model, data_dict):
+  encoded = []
+  for m_attr in orange_model.domain.attributes:
+    cv = getattr(m_attr, "compute_value", None)
+    if cv is not None and hasattr(cv, "variable"):
+      num_val = data_dict[cv.variable.name]
+      if hasattr(cv, "value"):
+        val = 1.0 if num_val == cv.value else 0.0
+      else:
+        val = float(num_val)
+      offset = getattr(cv, "offset", 0.0) or 0.0
+      scale = getattr(cv, "scale", 1.0) or 1.0
+      encoded.append((val - offset) * scale)
+    else:
+      encoded.append(float(data_dict.get(m_attr.name, 0.0)))
+
+  X = np.array([encoded], dtype=float)
+  return float(orange_model.skl_model.predict(X)[0])
+
+
+st.title("❄️ 에어컨 예상 전기요금 계산기")
+st.markdown("선택 조건 | " + " · ".join(tags))
+st.divider()
+
+try:
+  prediction = predict_safely(model, raw_dict)
+  target_class = raw_domain.class_var or model.domain.class_var
+  target_name = target_class.name if target_class else "예상 전기요금"
+
+  st.markdown(
+      f"""
+        <div style="background-color:#f8fafc; border:1px solid #e2e8f0; border-radius:14px; padding:36px; text-align:center; margin-bottom:20px;">
+            <div style="font-size:16px; color:#64748b; margin-bottom:10px;">AI 모델 예측 결과 ({target_name})</div>
+            <div style="font-size:48px; font-weight:800; color:#2563eb;">{prediction:,.0f}원</div>
+            <div style="font-size:13px; color:#94a3b8; margin-top:8px;">정밀 예측값: {prediction:,.2f}</div>
+        </div>
+        """,
+      unsafe_allow_html=True,
+  )
+  st.info(
+      "💡 왼쪽 사이드바의 옵션을 조절하면 예상 요금이 실시간으로 계산됩니다."
+  )
+
+except Exception as e:
+  st.error(f"예측 계산 중 오류가 발생했습니다: {e}")
