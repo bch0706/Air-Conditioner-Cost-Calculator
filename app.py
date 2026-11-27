@@ -10,7 +10,7 @@ st.title("📊 Orange3 회귀 모델 예측")
 # 모델 로딩 속도 최적화를 위해 캐싱 적용
 @st.cache_resource
 def load_model():
-  with open("model.pkcls", "rb") as f:
+  with open("Air Conditioner Cost Calculator.pkcls", "rb") as f:
     return pickle.load(f)
 
 
