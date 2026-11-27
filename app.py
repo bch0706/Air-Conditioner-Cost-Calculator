@@ -18,11 +18,11 @@ LABEL_MAP = {
     "area": "🏠 주택 평형",
     "ac_type": "❄️ 에어컨 종류",
     "drive_type": "⚙️ 냉방 방식",
+    "units": "🔢 가동 대수 (대)",
     "days": "📅 월 사용 일수 (일)",
     "hours": "⏰ 일평균 가동 시간 (시간)",
     "wind": "💨 바람 세기",
     "temp": "🌡️ 희망 온도 (°C)",
-    "count": "🔢 가동 대수 (대)",
 }
 
 
@@ -66,7 +66,7 @@ for attr in raw_attrs:
     elif any(k in lower_name for k in ["가구원", "인원", "명", "member"]):
       val = st.sidebar.slider(label, 1, 8, 3, 1)
       tags.append(f"**{val}인 가구**")
-    elif any(k in lower_name for k in ["대수", "대", "count", "num"]):
+    elif any(k in lower_name for k in ["대수", "대", "count", "num", "unit"]):
       val = st.sidebar.slider(label, 1, 5, 1, 1)
       tags.append(f"**{val}대**")
     elif any(k in lower_name for k in ["평", "면적", "area"]):
@@ -82,22 +82,27 @@ for attr in raw_attrs:
     raw_dict[orig_name] = float(val)
 
 
-def predict_safely(orange_model, data_dict):
-  encoded = []
-  for m_attr in orange_model.domain.attributes:
-    cv = getattr(m_attr, "compute_value", None)
-    if cv is not None and hasattr(cv, "variable"):
-      num_val = data_dict[cv.variable.name]
-      if hasattr(cv, "value"):
-        val = 1.0 if num_val == cv.value else 0.0
-      else:
-        val = float(num_val)
-      offset = getattr(cv, "offset", 0.0) or 0.0
-      scale = getattr(cv, "scale", 1.0) or 1.0
-      encoded.append((val - offset) * scale)
+# 2단계 이상 중첩된 오렌지 전처리(원-핫 인코딩 + 정규화)를 끝까지 추적해 계산
+def eval_var(var, data_dict):
+  if var.name in data_dict:
+    return float(data_dict[var.name])
+  cv = getattr(var, "compute_value", None)
+  if cv is not None and hasattr(cv, "variable"):
+    base_val = eval_var(cv.variable, data_dict)
+    if hasattr(cv, "value"):
+      val = 1.0 if base_val == cv.value else 0.0
     else:
-      encoded.append(float(data_dict.get(m_attr.name, 0.0)))
+      val = float(base_val)
+    offset = getattr(cv, "offset", 0.0) or 0.0
+    scale = getattr(cv, "scale", 1.0)
+    if scale is None or scale == 0:
+      scale = 1.0
+    return (val - offset) * scale
+  return 0.0
 
+
+def predict_safely(orange_model, data_dict):
+  encoded = [eval_var(m_attr, data_dict) for m_attr in orange_model.domain.attributes]
   X = np.array([encoded], dtype=float)
   return float(orange_model.skl_model.predict(X)[0])
 
