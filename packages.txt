@@ -1,4 +1,2 @@
-my-orange-model/
-├── app.py               # 스트림릿 웹 UI 및 예측 코드
-├── model.pkcls          # 오렌지에서 저장한 모델 파일
-└── requirements.txt     # 서버 설치용 패키지 목록
+libgl1
+libglib2.0-0
